@@ -11,9 +11,17 @@ epochs=80
 batch_size=12
 patience=10
 lr=0.001
-
+cuda=True
+balance=True
 # arch
 # augments
-# etc
+
+# Audio config
+window_size=3.0
+sampling_rate=16000
+
+# Dataset
+num_classes=5
+
 
 python -u src/train_and_evaluate.py
