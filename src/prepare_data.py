@@ -96,7 +96,7 @@ def get_stratified_partition(dataframe, seed):
     train_df, dev_df = split_dataset(dataframe, test_size=0.1, random_state=seed)
     dev_df, low_quantity_data_df = check_low_quantity_labels(dev_df)
     dev_df, test_df = split_dataset(dev_df, test_size=0.5, random_state=seed)
-    test_df = test_df.append(low_quantity_data_df)
+    test_df = pd.concat([test_df, low_quantity_data_df])
     return train_df, dev_df, test_df
 
 
@@ -133,14 +133,14 @@ def get_classes_index(dataframe):
 def main(args):
 
     # Destination path
-    if(args.dst !=  ""):
-        output_path = args.dst
-    else:
-        output_path = os.path.join(args.src, 'metadata')
+    if (not os.path.isfile(args.src)) and  (not os.path.isdir(args.dst)):
+        raise Exception('Non valid arguments!')
+    
+    output_path = args.dst
     check_path(output_path)
 
     # Read tsv
-    df_path = os.path.join(args.src, 'metadata/donateacry.tsv')
+    df_path = os.path.join(args.src)
     df = pd.read_csv(df_path, header=0, sep='\t')
 
     # Get and save classes index
@@ -171,7 +171,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description="Script to partitions for donateacry dataset")
 
-    parser.add_argument("--src", help="source directory", default="/home/fernandol/.gymnos/datasets/donateacry/donateacry_corpus_cleaned_and_updated_data/") 
+    parser.add_argument("--src", help="source tsv with metadata", default="") 
     parser.add_argument("--dst", help="destination directory", default="")   
     parser.add_argument('--seed', type=int, default=0, help='partition seed')
     args = parser.parse_args()
