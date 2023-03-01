@@ -1,3 +1,4 @@
+# Fernando López Gavilánez, 2023
 
 import os
 import argparse
@@ -8,49 +9,53 @@ from scipy.io import wavfile
 
 def main(args):
     """
-    This function walks over the Valentini paths to create a TSV that constains all the audio metadata.
+    This function walks over the Donate A Cry dataset to create a TSV that constains all the audio metadata.
     """
 
-    dataset_path = args.src
+    if os.path.isdir(args.src) and os.path.isdir(args.dst):
 
-    # Create dataframe list
-    dataframe_list = []
+        dataset_path = args.src
 
-    # Get classes
-    classes = glob(dataset_path + '/*/')
-    for idx, label in enumerate(classes):
-        classes[idx] = label.split('/')[-2]
-    if('metadata' in classes):
-        classes.remove('metadata')
+        # Create dataframe list
+        dataframe_list = []
 
-    # Walk over data
-    for item in classes:
+        # Get classes
+        classes = glob(dataset_path + '/*/')
+        for idx, label in enumerate(classes):
+            classes[idx] = label.split('/')[-2]
+        if('metadata' in classes):
+            classes.remove('metadata')
 
-        class_path = os.path.join(dataset_path, item)
+        # Walk over data
+        for item in classes:
 
-        for audio_file in os.listdir(class_path):
-            if(audio_file.endswith(".wav") and not audio_file.startswith('.')):
+            class_path = os.path.join(dataset_path, item)
 
-                # Sample ID
-                sample_id = audio_file.split('.')[0]
+            for audio_file in os.listdir(class_path):
+                if(audio_file.endswith(".wav") and not audio_file.startswith('.')):
 
-                # Audio path
-                audio_path = os.path.join(class_path, audio_file)
+                    # Sample ID
+                    sample_id = audio_file.split('.')[0]
 
-                # Audio Length
-                rate, data = wavfile.read(audio_path)
-                audio_length = data.shape[0]/rate
+                    # Audio path
+                    audio_path = os.path.join(class_path, audio_file)
 
-                audio_path = audio_path.replace(dataset_path, '')
+                    # Audio Length
+                    rate, data = wavfile.read(audio_path)
+                    audio_length = data.shape[0]/rate
 
-                # Write row on dataframe
-                dataframe_list.append([ sample_id, audio_path, audio_length, item])
+                    audio_path = audio_path.replace(dataset_path, '')
+
+                    # Write row on dataframe
+                    dataframe_list.append([ sample_id, audio_path, audio_length, item])
 
 
-    # Build valentini tsv file
-    donateacry_df = pd.DataFrame(dataframe_list, columns=['Sample_ID', 'Sample_Path', 'Audio_Length', 'Label'])
-    donateacry_df.to_csv('donateacry.tsv', sep = '\t', index=None)
+        # Build valentini tsv file
+        donateacry_df = pd.DataFrame(dataframe_list, columns=['Sample_ID', 'Sample_Path', 'Audio_Length', 'Label'])
+        donateacry_df.to_csv(os.path.join(args.dst, 'donateacry.tsv'), sep = '\t', index=None)
 
+    else:
+        raise Exception('Non valid paths.')
 
 
 if __name__ == '__main__':
@@ -58,7 +63,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Scrip to create donateacry tsv")
 
     # Source Valentini data placed in the data folder of the project 
-    parser.add_argument("--src", help="source directory", default="/home/fernandol/.gymnos/datasets/donateacry/donateacry_corpus_cleaned_and_updated_data/")    
+    parser.add_argument("--src", help="source directory", default="")    
+    parser.add_argument("--dst", help="destination directory", default="data/")    
     args = parser.parse_args()
 
     # Run main
