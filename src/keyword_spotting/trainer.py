@@ -2,71 +2,63 @@
 
 import torch
 import numpy as np
-import mlflow
-from sklearn.metrics import roc_curve, roc_auc_score, classification_report
-
 import logging
 import inspect
 import time
 import random
 
-from dataclasses import dataclass
+from sklearn.metrics import roc_curve, roc_auc_score, classification_report
 
-from ....base import BaseTrainer
-from .hydra_conf import LenetAudioHydraConf
-from . import loader
-from .model import LeNetAudio
+import keyword_spotting.loader as loader
 
 
-@dataclass
-class LenetAudioTrainer(LenetAudioHydraConf, BaseTrainer):
-    """
-    TODO: docstring for trainer
-    """
+class AudioTrainer():
 
-    def __post_init__(self):
+    def __init__(self, model, seed, num_classes, cuda, window_size, sampling_rate):
 
-        self._set_seed()
+        self._window_size = window_size
+        self._sampling_rate = sampling_rate
 
-        self._model = LeNetAudio(
-            self.num_classes,
-            window_size=int(self.window_size*self.sampling_rate)
-            )
+        self._cuda = cuda
+
+        self._set_seed(seed)
+
+        self._model = model
 
         # Select device
-        if (torch.cuda.is_available() and self.cuda):
+        if (torch.cuda.is_available() and cuda):
             self._device = torch.device("cuda")
         else:
             self._device = torch.device("cpu")
 
         self._model.to(self._device)
 
-    def prepare_data(self, root):
+    def prepare_data(self, root_path):
         self.train_dataset, self.dev_dataset = loader.load_train_partitions(
-            root,
-            window_size=int(self.window_size*self.sampling_rate)
+            root_path,
+            window_size=int(self._window_size*self._sampling_rate)
             )
         self.test_dataset = loader.load_test_partition(
-            root,
-            window_size=int(self.window_size*self.sampling_rate)
+            root_path,
+            window_size=int(self._window_size*self._sampling_rate)
             )
 
-    def train(self):
+    def train(self, epochs, optimizer, lr, momentum, weight_decay, balance):
 
         logger = logging.getLogger(__name__)
 
         logger.info(inspect.cleandoc(f'''Starting training:
-            Epochs:             {self.epochs}
-            Batch size:         {self.batch_size}
-            Learning rate:      {self.lr}
+            Epochs:             {epochs}
+            Batch size:         {batch_size}
+            Learning rate:      {lr}
             Training samples:   {self.train_dataset.n_samples}
             Validation samples: {self.dev_dataset.n_samples}
             Device:             {self._device.type}
-            Optimizer:          {self.optimizer}
+            Optimizer:          {optimizer}
             Dataset classes:    {self.train_dataset.classes}
-            Balance:            {self.balance}
-            Patience:           {self.patience}
-            Cuda:               {self.cuda}
+            Balance:            {balance}
+            Patience:           {patience}
+            Cuda:               {self._cuda}
         '''))
 
         # Optimizer
@@ -392,13 +384,13 @@ class LenetAudioTrainer(LenetAudioHydraConf, BaseTrainer):
         
         return predicted_labels.data.numpy().tolist()
 
-    def _set_seed(self):
+    def _set_seed(self, seed):
         """
         Fix seed of torch, numpy and random.
         """
-        torch.manual_seed(self.seed)
-        np.random.seed(self.seed)
+        torch.manual_seed(seed)
+        np.random.seed(seed)
         if torch.cuda.is_available():
-            torch.cuda.manual_seed(self.seed)
+            torch.cuda.manual_seed(seed)
             torch.backends.cudnn.deterministic = True
-        random.seed(self.seed)
+        random.seed(seed)
