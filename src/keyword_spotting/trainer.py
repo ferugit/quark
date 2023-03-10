@@ -1,5 +1,6 @@
 # Fernando López Gavilánez, 2023
 
+import os
 import torch
 import numpy as np
 import logging
@@ -14,16 +15,19 @@ import keyword_spotting.loader as loader
 
 class AudioTrainer():
 
-    def __init__(self, model, seed, num_classes, cuda, window_size, sampling_rate):
+    def __init__(self, model, seed, num_classes, cuda, window_size, sampling_rate, 
+        tensorboard_writer, reporter, results_path, model_id, batch_size):
 
         self._window_size = window_size
         self._sampling_rate = sampling_rate
-
         self._cuda = cuda
-
         self._set_seed(seed)
-
         self._model = model
+        self._tensorboard_writer = tensorboard_writer
+        self._reporter = reporter
+        self._results_path = results_path
+        self._model_id = model_id
+        self.batch_size = batch_size
 
         # Select device
         if (torch.cuda.is_available() and cuda):
@@ -33,31 +37,40 @@ class AudioTrainer():
 
         self._model.to(self._device)
 
-    def prepare_data(self, root_path):
+    def prepare_data(self, partition_path, root_path):
         self.train_dataset, self.dev_dataset = loader.load_train_partitions(
+            partition_path,
             root_path,
             window_size=int(self._window_size*self._sampling_rate)
             )
         self.test_dataset = loader.load_test_partition(
+            partition_path,
             root_path,
             window_size=int(self._window_size*self._sampling_rate)
             )
 
-    def train(self, epochs, optimizer, lr, momentum, weight_decay, balance):
+    def train(self, epochs, optimizer, lr, momentum, weight_decay, balance, patience):
 
         logger = logging.getLogger(__name__)
+        logger.setLevel(logging.INFO)
+        self.optimizer = optimizer
+        self.lr = lr
+        self.weight_decay = weight_decay
+        self.balance = balance
+        self.patience = patience
+        self.epochs = epochs
 
         logger.info(inspect.cleandoc(f'''Starting training:
-            Epochs:             {epochs}
-            Batch size:         {batch_size}
-            Learning rate:      {lr}
+            Epochs:             {self.epochs}
+            Batch size:         {self.batch_size}
+            Learning rate:      {self.lr}
             Training samples:   {self.train_dataset.n_samples}
             Validation samples: {self.dev_dataset.n_samples}
             Device:             {self._device.type}
-            Optimizer:          {optimizer}
+            Optimizer:          {self.optimizer}
             Dataset classes:    {self.train_dataset.classes}
-            Balance:            {balance}
-            Patience:           {patience}
+            Balance:            {self.balance}
+            Patience:           {self.patience}
             Cuda:               {self._cuda}
         '''))
 
@@ -73,7 +86,7 @@ class AudioTrainer():
         criterion = torch.nn.CrossEntropyLoss()
 
         # If balance dataset: use Weigth Random Sampler
-        if(self.balance):
+        if self.balance:
             samples_per_class = 100 # empirical value
             sampler = torch.utils.data.WeightedRandomSampler(
                 torch.from_numpy(self.train_dataset.get_sample_weigths()),
@@ -181,14 +194,6 @@ class AudioTrainer():
             validation_losses.append(validation_loss)
             validation_accuracies.append(validation_accuracy)
 
-            mlflow.log_metrics({
-                "train/loss": train_loss,
-                "train/accuracy": train_accuracy,
-                "val/loss": validation_loss,
-                "val/accuracy": validation_accuracy,
-            }, counter)
-            mlflow.log_metric("epoch", epoch)
-
             # Print epoch information
             current_time = time.process_time()
             logger.info("")
@@ -198,6 +203,16 @@ class AudioTrainer():
             logger.info("\t Time Elapsed for Epoch: {} seconds".format(str(current_time-start_time)))
             logger.info("")
             epoch_times.append(current_time-start_time)
+
+            # Tensorboard
+            self._tensorboard_writer.add_scalar("train_loss", train_loss, epoch)
+            self._tensorboard_writer.add_scalar("train_accuracy", train_accuracy, epoch)
+            self._tensorboard_writer.add_scalar("val_loss", validation_loss, epoch)
+            self._tensorboard_writer.add_scalar("val_accuracy", validation_accuracy, epoch)
+            self._tensorboard_writer.add_scalar("best_val_loss", best_loss_validation, epoch)
+            self._tensorboard_writer.add_scalar("lr", optimizer.param_groups[0]['lr'], epoch)
+            self._tensorboard_writer.add_scalar("patience", patience_counter, epoch)
+            self._tensorboard_writer.add_scalar("epoch_time", epoch_times[-1], epoch)
 
             # Early stopping
             if(best_loss_validation <= validation_loss):
@@ -217,16 +232,31 @@ class AudioTrainer():
                     break
             else:
                 # Reinitialize patience counter and save model
+                best_epoch = epoch
                 patience_counter = 0
                 best_loss_validation = validation_loss
-                self._model.save("lenet")
-                mlflow.log_artifact("lenet.pt")
+                self._model.save_entire_model(os.path.join(self._results_path, self._model_id))
 
         logger.info("Total Training Time: {} seconds".format(str(sum(epoch_times))))
+
+        # Report training
+        metrics = {}
+        metrics['training_time_s'] = sum(epoch_times)
+        metrics['number_of_epochs'] = len(epoch_times)
+        metrics['train_loss'] = train_losses
+        metrics['validation_loss'] = validation_losses
+        metrics['train_accuracy'] = train_accuracies
+        metrics['validation_accuracy'] = validation_accuracies
+        self._reporter.report("train_metrics", metrics)
+        
+        # Tensorboard
+        self._tensorboard_writer.add_scalar("training_time", sum(epoch_times))
+        self._tensorboard_writer.add_scalar("best_epoch", best_epoch)
 
     def test(self):
 
         logger = logging.getLogger(__name__)
+        logger.setLevel(logging.INFO)
 
         # Loss function
         criterion = torch.nn.CrossEntropyLoss()
@@ -282,18 +312,27 @@ class AudioTrainer():
             test_loss = test_loss/len(test_loader)
             test_accuracy = test_accuracy/len(test_loader.sampler)
 
-            mlflow.log_metrics({
-                "test/loss": test_loss,
-                "test/accuracy": test_accuracy,
-            })
-
             # Classification report
             target_names = []
             classes_index = self.test_dataset.class_index
             for index in range(len(classes_index)):
                 target_names.append(classes_index[str(index)])
             report = self._get_metrics(labels, predictions, target_names=target_names)
-            mlflow.log_dict(report, "classification_report.json")
+
+            # Reporter
+            metrics = {}
+            metrics['test_loss'] = test_loss
+            metrics['test_accuracy'] = test_accuracy
+            metrics['report'] = report
+            self._reporter.report('test_metrics', metrics)
+
+            # Tensorboard test results
+            self._tensorboard_writer.add_scalar("test_loss", metrics['test_loss'])
+            self._tensorboard_writer.add_scalar("test_accuracy", metrics['test_accuracy'])
+            #self._tensorboard_writer.add_scalar("macro-avg-f1-score", report[0]['macro avg']['f1-score'])
+            # TODO: get confussion matrix and plot it
+            #self._tensorboard_writer.add_figure("confussion_matrix", cm_fig)
+            self._tensorboard_writer.close()
 
     def _right_predictions(self, out, label):
         """
@@ -394,3 +433,10 @@ class AudioTrainer():
             torch.cuda.manual_seed(seed)
             torch.backends.cudnn.deterministic = True
         random.seed(seed)
+
+    def load_best_checkpoint(self):
+        """
+        Model attribute containes an overfitted version od the model.
+        This method allows to load the best model in validation set.
+        """
+        self._model = torch.load(os.path.join(self._results_path, self._model_id + '_entire.pt'))

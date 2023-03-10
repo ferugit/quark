@@ -10,27 +10,29 @@ import numpy as np
 import pandas as pd
 
 
-def load_train_partitions(path, window_size=24000, fs=16000):
+def load_train_partitions(partition_path, root_path, window_size=24000, fs=16000, augments=None):
 
     # Augments
     augments = ['white_noise']
     augments = {key: True for key in augments}
 
     # Read class index
-    with open(path + '/metadata/classes_index.json') as f:
+    with open(os.path.join(partition_path, 'classes_index.json')) as f:
         class_index = json.load(f)
     
     # Load train set
-    train_df = pd.read_csv(path + '/metadata/train.tsv', sep='\t')
+    train_df = pd.read_csv(os.path.join(partition_path, 'train.tsv'), sep='\t')
+    #train_df['Sample_Path'] = train_df['Sample_Path'].apply(lambda x: os.path.join(root_path, x))
     train_ID_list = list(train_df['Sample_ID'])
 
     # Load validation set
-    validation_df = pd.read_csv(path + '/metadata/dev.tsv', sep='\t')
+    validation_df = pd.read_csv(os.path.join(partition_path, 'dev.tsv'), sep='\t')
+    #validation_df['Sample_Path'] = validation_df['Sample_Path'].apply(lambda x: os.path.join(root_path, x))
     validation_ID_list = list(validation_df['Sample_ID'])
 
     # Generate Datasets
     train_dataset = AudioDataset(
-        path,
+        root_path,
         train_ID_list,
         train_df,
         class_index,
@@ -39,7 +41,7 @@ def load_train_partitions(path, window_size=24000, fs=16000):
         augments=augments
         )
     validation_dataset = AudioDataset(
-        path,
+        root_path,
         validation_ID_list,
         validation_df,
         class_index,
@@ -51,23 +53,24 @@ def load_train_partitions(path, window_size=24000, fs=16000):
     return train_dataset, validation_dataset
 
 
-def load_test_partition(path, window_size=24000, fs=16000, augments=None):
+def load_test_partition(partition_path, root_path, window_size=24000, fs=16000, augments=None):
 
     # Augments
     augments = ['white_noise']
     augments = {key: False for key in augments}
 
     # Read class index
-    with open(path + '/metadata/classes_index.json') as f:
+    with open(os.path.join(partition_path, 'classes_index.json')) as f:
         class_index = json.load(f)
     
     # Load train set
-    test_df = pd.read_csv(path + '/metadata/test.tsv', sep='\t')
+    test_df = pd.read_csv(os.path.join(partition_path, 'test.tsv'), sep='\t')
+    #test_df['Sample_Path'] = test_df['Sample_Path'].apply(lambda x: os.path.join(root_path, x))
     test_ID_list = list(test_df['Sample_ID'])
 
     # Generate Datasets
     test_dataset = AudioDataset(
-        path,
+        root_path,
         test_ID_list,
         test_df,
         class_index,
