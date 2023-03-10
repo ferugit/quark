@@ -1,3 +1,5 @@
 .venv
 data/tsv
 partitions/partition_*
+__pycache__
+models/checkpoints/*
