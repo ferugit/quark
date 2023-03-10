@@ -2,6 +2,7 @@
 
 import os
 import json
+import datetime
 import argparse
 import pandas as pd
 
@@ -136,7 +137,11 @@ def main(args):
     if (not os.path.isfile(args.src)) and  (not os.path.isdir(args.dst)):
         raise Exception('Non valid arguments!')
     
-    output_path = args.dst
+    # Get timestamp
+    date = datetime.datetime.now()
+    timestamp = str(date).replace(" ", "").replace("-", "").replace(":", "").split(".")[0]
+    output_path = os.path.join(args.dst, "partition_" + timestamp)
+
     check_path(output_path)
 
     # Read tsv
